@@ -95,11 +95,11 @@ int main()
         return 1;
     }
     std::cout << "Server listening on port " << PORT << "...\n";
-
+    LRUKVStore store(100);
     // main loop: accept connections and handle them one at a time
     while (true)
     {
-        LRUKVStore store(100);
+
         // step 4: accept a new connection
         //  Blocks here (waits) until a client connects.
         // Returns a NEW file descriptor for that specific client.

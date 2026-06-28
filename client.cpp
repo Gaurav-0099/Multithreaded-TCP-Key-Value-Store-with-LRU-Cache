@@ -35,6 +35,12 @@ int main()
         return 1;
     }
 
+    if (connect(sock_fd, (sockaddr *)&server_address, sizeof(server_address)) < 0)
+    {
+        std::cerr << "ERROR: connect() failed. Is the server running?\n";
+        return 1;
+    }
+
     std::cout << "Connected to server on Port " << port << "\n";
     std::cout << "Commands: SET key value | GET key | DELETE key | quit\n\n";
 
