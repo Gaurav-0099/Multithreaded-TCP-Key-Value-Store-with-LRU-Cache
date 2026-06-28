@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread> //for multithreading
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -54,8 +55,53 @@ std::string parseAndExecute(const std::string &command, LRUKVStore &store)
     }
     return "ERROR: Unknown command. Use SET / GET / DELETE\n";
 }
+
+// handleClient: runs in its own thread for each connected client.
+// Takes ownership of client_fd — responsible for closing it.
+//
+// Why pass store by reference?
+// All threads share the SAME KVStore — that's the whole point.
+// One database, many clients accessing it simultaneously.
+// (We'll make this safe with shared_mutex on Day 5.)
+void handleClient(int client_fd, LRUKVStore &store)
+{
+    std::cout << "Thread " << std::this_thread::get_id()
+              << " handling client (fd=" << client_fd << ")\n";
+
+    char buffer[buffer_size];
+
+    while (true)
+    {
+        memset(buffer, 0, buffer_size);
+        int bytes_read = recv(client_fd, buffer, buffer_size - 1, 0);
+
+        if (bytes_read <= 0)
+        {
+            std::cout << "Client disconnected (fd=" << client_fd << ")\n";
+            break;
+        }
+
+        std::string command(buffer);
+        if (!command.empty() && command.back() == '\n')
+            command.pop_back();
+        if (!command.empty() && command.back() == '\r')
+            command.pop_back();
+
+        std::cout << "[Thread " << std::this_thread::get_id()
+                  << "] Received: " << command << "\n";
+
+        std::string response = parseAndExecute(command, store);
+        response += "\n";
+        send(client_fd, response.c_str(), response.size(), 0);
+    }
+
+    close(client_fd);
+    // Thread finishes here and cleans itself up (because we detach it)
+}
+
 int main()
 {
+    LRUKVStore store(100); // capacity of 100 entries
     // step 1: create socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0)
@@ -94,64 +140,37 @@ int main()
         std::cerr << "ERROR: listen() failed\n";
         return 1;
     }
-    std::cout << "Server listening on port " << PORT << "...\n";
-    LRUKVStore store(100);
+    std::cout << "Multithreaded server listening on port " << PORT << "...\n";
     // main loop: accept connections and handle them one at a time
     while (true)
     {
-
-        // step 4: accept a new connection
-        //  Blocks here (waits) until a client connects.
-        // Returns a NEW file descriptor for that specific client.
-        // server_fd keeps listening; client_fd is for this one client.
         sockaddr_in client_address;
         socklen_t client_len = sizeof(client_address);
-        int client_fd = accept(server_fd, (sockaddr *)&client_address, &client_len);
 
+        // accept() still runs in main thread — waits for new connections
+        int client_fd = accept(server_fd, (sockaddr *)&client_address, &client_len);
         if (client_fd < 0)
         {
             std::cerr << "ERROR: accept() failed\n";
-            continue; // try again instead of crashing
+            continue;
         }
 
-        std::cout << "Client connected (fd=" << client_fd << ")\n";
+        std::cout << "New client connected (fd=" << client_fd
+                  << ") — spawning thread\n";
 
-        // STEP 5: recv() / send() loop
-        // Keep reading commands from this client until they disconnect.
-        char buffer[buffer_size];
-        while (true)
-        {
-            memset(buffer, 0, buffer_size); // clear buffer before each read
+        // Spawn a new thread for this client.
+        // The thread runs handleClient(client_fd, store) independently.
+        // main() immediately loops back to accept() — ready for the next client.
+        std::thread t(handleClient, client_fd, std::ref(store));
+        // std::ref(store) — pass store by reference to the thread.
+        // Without std::ref, std::thread would try to COPY store — wrong.
 
-            // recv() reads bytes from the client into buffer.
-            // Returns number of bytes read, 0 if client disconnected, -1 on error.
-            int bytes_read = recv(client_fd, buffer, buffer_size - 1, 0);
-            if (bytes_read <= 0)
-            {
-                // 0 = client disconnected cleanly
-                // <0 = error
-                std::cout << "Client disconnected (fd=" << client_fd << ")\n";
-                break;
-            }
+        // detach(): let the thread run independently.
+        // main() won't wait for it. Thread cleans up when handleClient returns.
+        t.detach();
 
-            std::string command(buffer);
-            // Remove trailing newline that terminal sends with Enter
-            if (!command.empty() && command.back() == '\n')
-                command.pop_back();
-            if (!command.empty() && command.back() == '\r')
-                command.pop_back();
-
-            std::cout << "Received: " << command << "\n";
-
-            // Process command and get response
-            std::string response = parseAndExecute(command, store);
-            response += "\n"; // add newline so client can detect end of message
-
-            // send() writes our response back to the client
-            send(client_fd, response.c_str(), response.size(), 0);
-        }
-
-        close(client_fd); // close this client's connection
+        // At this point main() is already back at accept(), waiting for
+        // the next client — while the detached thread handles the current one.
     }
     close(server_fd);
     return 0;
