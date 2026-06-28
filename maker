@@ -1,0 +1,8 @@
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall
+
+test:
+	$(CXX) $(CXXFLAGS) kvstore.cpp testkvstore.cpp -o testkvstore && ./testkvstore
+
+clean:
+	rm -f testkvstore
