@@ -11,8 +11,7 @@
 class LRUKVStore
 {
 public:
-    explicit LRUKVStore(size_t capaxity);
-
+    explicit LRUKVStore(size_t capacity);
     void set(const std::string &key, const std::string &value);
 
     std::optional<std::string> get(const std::string &key);
@@ -29,6 +28,7 @@ private:
     // We store the KEY in the list so we can remove it from the
     // map when we evict the tail node.
     using KeyValuePair = std::pair<std::string, std::string>;
+    
     std::list<KeyValuePair> list_;
 
     // Maps key → iterator pointing to that key's node in list_.
