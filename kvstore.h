@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <optional>
 #include <list>
+#include <shared_mutex>
+#include <mutex>
 // LRU KVStore-kv store with fixed capacity
 // removes least used element if it overflows the capacity
 // list to keep track of time front->recent and back->older ones
@@ -28,13 +30,15 @@ private:
     // We store the KEY in the list so we can remove it from the
     // map when we evict the tail node.
     using KeyValuePair = std::pair<std::string, std::string>;
-    
+
     std::list<KeyValuePair> list_;
 
     // Maps key → iterator pointing to that key's node in list_.
     // std::list iterators stay valid even after other nodes are
     // moved or removed — this is the property that makes LRU work.
     std::unordered_map<std::string, std::list<KeyValuePair>::iterator> map_;
+
+    mutable std::shared_mutex mutex_;
 
     // Move an existing node to the front of the list (O(1)).
     // Called on every GET and SET to mark the key as recently used.

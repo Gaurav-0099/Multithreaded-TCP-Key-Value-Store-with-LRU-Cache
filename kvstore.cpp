@@ -10,6 +10,13 @@ LRUKVStore::LRUKVStore(size_t capacity) : capacity_(capacity)
 // GET key
 std::optional<std::string> LRUKVStore::get(const std::string &key)
 {
+    // unique_lock here because get() modifies the list order (moveToFront).
+    // Even though it's a "read" from the user's perspective, internally
+    // it writes to the linked list — so we need exclusive access.
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    // Note for interviews: a pure read-only get() could use shared_lock,
+    // but LRU's moveToFront makes every GET a write internally.
+
     auto it = map_.find(key);
 
     if (it == map_.end())
@@ -29,6 +36,8 @@ std::optional<std::string> LRUKVStore::get(const std::string &key)
 // SET key value
 void LRUKVStore::set(const std::string &key, const std::string &value)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+
     auto it = map_.find(key);
 
     if (it != map_.end())
@@ -56,6 +65,8 @@ void LRUKVStore::set(const std::string &key, const std::string &value)
 // DELETE key
 bool LRUKVStore::del(const std::string &key)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+
     auto it = map_.find(key);
 
     if (it == map_.end())
@@ -75,6 +86,8 @@ bool LRUKVStore::del(const std::string &key)
 // Returns current number of stored entries
 size_t LRUKVStore::size() const
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+
     return map_.size();
 }
 
